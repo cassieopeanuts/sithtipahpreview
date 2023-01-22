@@ -1,7 +1,7 @@
 use serenity::{
-    framework::standard::{ 
+    framework::standard::{ StandardFramework,
         Args, CommandResult,
-        macros::{command, group},
+        macros::{command, group}, Command,
     },
     model::{channel::Message,}
 };
@@ -24,6 +24,7 @@ lazy_static! {
         Arc::new(Mutex::new(pool))
     };
 }
+
 
 // Database operations
 fn tip_data(conn: &rusqlite::Connection, sender_id: u64, recipient_id: u64, amount: i32) -> Result<(), String> {
