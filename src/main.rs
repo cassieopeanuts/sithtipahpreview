@@ -1,11 +1,11 @@
-use modules::commands;
 use serenity::{
-    model::{event::ResumedEvent, gateway::Ready, gateway::GatewayIntents, gateway::BotGateway},
-    prelude::*, framework::standard::Command,
+    model::{event::ResumedEvent, gateway::Ready, gateway::GatewayIntents },
+    prelude::*,
 };
-use serenity::{
-    client::Client,
-    framework::standard::StandardFramework,
+
+use serenity::client::{Client, Context};
+use serenity::framework::standard::{
+    StandardFramework,
 };
 
 use async_trait::*;
@@ -13,6 +13,8 @@ use tokio;
 mod modules;
 use std::*;
 use dotenv::dotenv;
+
+use crate::modules::ALLCOMMS_GROUP;
 
 struct Handler;
 #[async_trait]
@@ -39,13 +41,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .parse()
         .expect("APPLICATION_ID couldn't be parsed");
        
-    let mut framework = StandardFramework::new()
+    let framework = StandardFramework::new()
         .configure(|c| c
             .prefix("!")
             .allow_dm(false)
-            .with_whitespace(false)
+            .with_whitespace(true)
             .delimiters(vec![",", ";"])
-        );
+            .case_insensitivity(true)
+        )
+        .group(&ALLCOMMS_GROUP);
 
     let mut client = Client::builder(token, GatewayIntents::empty())
         

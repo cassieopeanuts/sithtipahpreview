@@ -1,7 +1,7 @@
 use serenity::{
-    framework::standard::{ StandardFramework,
+    framework::standard::{
         Args, CommandResult,
-        macros::{command, group}, Command,
+        macros::{command, group},
     },
     model::{channel::Message,}
 };
@@ -25,51 +25,10 @@ lazy_static! {
     };
 }
 
-
-// Database operations
-fn tip_data(conn: &rusqlite::Connection, sender_id: u64, recipient_id: u64, amount: i32) -> Result<(), String> {
-    // Ensure that the sender and recipient exist in the database
-    let sender_exists = get_user(conn, sender_id);
-    let recipient_exists = get_user(conn, recipient_id);
-    let sender_balance = get_balance(conn, sender_id);
-
-    // Update the balances of the sender and recipient in the database
-    update_balance(conn, sender_id, -amount);
-    update_balance(conn, recipient_id, amount);
-
-    Ok(())
-}
-
-async fn update_data(conn: &rusqlite::Connection, user_id: u64, address: &str) -> Result<(), rusqlite::Error> {
-    // Check if the user exists
-    let user_exists = get_user(conn, user_id).await.is_ok();
-    if !user_exists {
-        // Insert a new row if the user doesn't exist
-        insert_row(conn, "", &address, 0).await?;
-    } else {
-        // Update the row if the user exists
-        update_address(conn, user_id, &address).await?;
-    }
-    Ok(())
-}
-
-pub async fn register_data(conn: &rusqlite::Connection, user_id: u64, address: &str) -> Result<(), rusqlite::Error> {
-    // Check if the user exists
-    let user_exists = get_user(conn, user_id).await.is_ok();
-    if !user_exists {
-        // Insert a new row if the user doesn't exist
-        insert_row(conn, "", &address, 10);
-    } else {
-        // Update the row if the user exists
-        update_address(conn, user_id, &address);
-    }
-    Ok(())
-}
-
 // bot commands
-#[serenity::framework::standard::macros::group]
+#[group("allcomms")]
 #[commands(tip, update, balance, register)]
-pub struct General;
+pub struct Allcomms;
 
 #[command]
 pub async fn tip(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
@@ -174,5 +133,48 @@ pub async fn register(ctx: &Context, msg: &Message, mut args: Args) -> CommandRe
     let user_name = msg.author.id.as_u64();
     msg.channel_id.say(&http, format!("{} registered with address: {}", user_name, address)).await?;
 
+    Ok(())
+}
+
+// Database operations
+fn tip_data(conn: &rusqlite::Connection, sender_id: u64, recipient_id: u64, amount: i32) -> Result<(), String> {
+    // Ensure that the sender and recipient exist in the database
+    let sender_exists = get_user(conn, sender_id);
+    let recipient_exists = get_user(conn, recipient_id);
+    let sender_balance = get_balance(conn, sender_id);
+
+    // add if and else to function to work (check update_data fn for example)
+
+
+    // Update the balances of the sender and recipient in the database
+    update_balance(conn, sender_id, -amount);
+    update_balance(conn, recipient_id, amount);
+
+    Ok(())
+}
+
+async fn update_data(conn: &rusqlite::Connection, user_id: u64, address: &str) -> Result<(), rusqlite::Error> {
+    // Check if the user exists
+    let user_exists = get_user(conn, user_id).await.is_ok();
+    if !user_exists {
+        // Insert a new row if the user doesn't exist
+        insert_row(conn, "", &address, 0).await?;
+    } else {
+        // Update the row if the user exists
+        update_address(conn, user_id, &address).await?;
+    }
+    Ok(())
+}
+
+pub async fn register_data(conn: &rusqlite::Connection, user_id: u64, address: &str) -> Result<(), rusqlite::Error> {
+    // Check if the user exists
+    let user_exists = get_user(conn, user_id).await.is_ok();
+    if !user_exists {
+        // Insert a new row if the user doesn't exist
+        insert_row(conn, "", &address, 10);
+    } else {
+        // Update the row if the user exists
+        update_address(conn, user_id, &address);
+    }
     Ok(())
 }
