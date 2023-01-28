@@ -1,0 +1,8 @@
+version: '3.4'
+
+services:
+  sithtipah:
+    image: sithtipah
+    build:
+      context: .
+      dockerfile: ./Dockerfile

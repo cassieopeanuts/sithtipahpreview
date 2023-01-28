@@ -67,7 +67,7 @@ pub async fn register_data(conn: &rusqlite::Connection, user_id: u64, address: &
 }
 
 // bot commands
-#[group]
+#[serenity::framework::standard::macros::group]
 #[commands(tip, update, balance, register)]
 pub struct General;
 
