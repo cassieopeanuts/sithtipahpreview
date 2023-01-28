@@ -3,10 +3,11 @@ use serenity::{
     prelude::*,
 };
 
-use serenity::client::{Client, Context};
+use serenity::client::{Client, Context,};
 use serenity::framework::standard::{
     StandardFramework,
 };
+
 
 use async_trait::*;
 use tokio;
@@ -58,7 +59,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .application_id(application_id)
         .await
         .expect("Error creating client");
-
 
     // Login to Discord and start the event loop
     if let Err(why) = client.start().await {
