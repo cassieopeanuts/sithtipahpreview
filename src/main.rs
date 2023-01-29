@@ -87,7 +87,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .group(&ALLCOMMS_GROUP);
 
-    let mut client = Client::builder(token, GatewayIntents::all())
+    let intents = GatewayIntents::GUILD_MESSAGES;
+
+    let mut client = Client::builder(token, intents)
         .framework(framework)
         .event_handler(Handler)
         .application_id(application_id)
