@@ -1,26 +1,36 @@
-use rusqlite::{params, Connection, Result};
+use rusqlite::{params, Connection, Result, ToSql};
+use std::sync::{Arc, Mutex};
+
+pub fn create_db_conn() -> Arc<Mutex<Connection>> {
+    let conn = Connection::open_in_memory().unwrap();
+    let conn = Arc::new(Mutex::new(conn));
+    create_table(&conn.lock().unwrap()).unwrap();
+    conn
+}
+use std::ops::Not;
+
+#[derive(Debug, Clone, Eq, PartialEq )]
 pub struct User {
-    pub id: i32,
-    pub name: String,
+    pub user_id: String,
     pub address: String,
-    pub balance: i32,
+    pub balance: i64,
 }
 
-pub fn main() -> Result<()> {
-    let conn = Connection::open("userstable.db")?;
+impl Not for User {
+    type Output = bool;
 
-    create_table(&conn);
-
-    Ok(())
+    fn not(self) -> Self::Output {
+        self.user_id.is_empty() || self.address.is_empty()
+    }
 }
-pub async fn create_table(conn: &Connection) -> Result<()> {
+
+pub fn create_table(conn: &Connection) -> Result<()> {
     conn.execute(
         "CREATE TABLE users (
-                  id              INTEGER,
-                  name            TEXT NOT NULL,
-                  address         TEXT,
-                  balance         INTEGER NOT NULL,
-                  PRIMARY KEY (id)
+                  user_id       TEXT NOT NULL UNIQUE,
+                  address       TEXT,
+                  balance       INTEGER NOT NULL,
+                  PRIMARY KEY (user_id)
                   )",
         params![],
     )?;
@@ -28,23 +38,24 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-pub async fn insert_row(conn: &Connection, name: &str, address: &str, balance: i32) -> Result<()> {
+pub async fn insert_row(conn: Arc<Mutex<Connection>>, user_id: &str, address: &str, balance: i32) -> Result<()> {
+    let conn = conn.lock().unwrap();
     conn.execute(
-        "INSERT INTO users (name, address, balance) VALUES (?1, ?2, ?3)",
-        params![name, address, balance],
+        "INSERT INTO users (user_id, address, balance) VALUES (?0, ?1, ?2)",
+        params![user_id, address, balance],
     )?;
 
     Ok(())
 }
 
-pub async fn get_user(conn: &rusqlite::Connection, user_id: u64) -> Result<User, rusqlite::Error> {
-    let mut stmt = conn.prepare("SELECT * FROM users WHERE user_id = ?1")?;
+pub async fn get_user(conn: &Arc<Mutex<rusqlite::Connection>>, user_id: &str) -> Result<User, rusqlite::Error> {
+    let conn = conn.lock().unwrap();
+    let mut stmt = conn.prepare("SELECT * FROM users WHERE user_id = ?0")?;
     let user_iter = stmt.query_map(params![user_id], |row| {
         Ok(User {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            address: row.get(2)?,
-            balance: row.get(3)?,
+            user_id: row.get(0)?,
+            address: row.get(1)?,
+            balance: row.get(2)?,
         })
     })?;
 
@@ -60,21 +71,39 @@ pub async fn get_user(conn: &rusqlite::Connection, user_id: u64) -> Result<User,
     }
 }
 
-pub async fn update_balance(conn: &Connection, user_id: u64, new_balance: i32) -> Result<()> {
-    conn.execute("UPDATE users SET balance = ?1 WHERE id = ?2", params![new_balance, user_id])?;
+pub async fn update_balance(conn: &Arc<Mutex<rusqlite::Connection>>, user_id: &str, balance: i32) -> Result<()> {
+    let conn = conn.lock().unwrap();
+    conn.execute("UPDATE users SET balance = ?2 WHERE user_id = ?0", params![balance, user_id])?;
     Ok(())
 }
 
-pub async fn get_balance(conn: &Connection, user_id: u64) -> Result<i32, rusqlite::Error> {
-    let mut stmt = conn.prepare("SELECT balance FROM users WHERE id = ?1")?;
-    let balance: i32 = stmt.query_row(params![user_id], |row| row.get(0))?;
+pub async fn get_balance(conn: &Arc<Mutex<rusqlite::Connection>>, user_id: &str) -> Result<i32, rusqlite::Error> {
+    let conn = conn.lock().unwrap();
+    let mut stmt = conn.prepare("SELECT balance FROM users WHERE user_id = ?0")?;
+    let balance: i32 = stmt.query_row(params![&user_id], |row| row.get(0))?;
     Ok(balance)
 }
 
-pub async fn update_address(conn: &Connection, id: u64, address: &str) -> Result<(), rusqlite::Error> {
+pub async fn update_address(conn: &Arc<Mutex<rusqlite::Connection>>, address: &str, user_id: &str) -> Result<()> {
+    let conn = conn.lock().unwrap();
+    conn.execute("UPDATE users SET address = ?1 WHERE user_id = ?0", params![address, user_id])?;
+    Ok(())
+}
+
+pub async fn plus_balance(conn: &Arc<Mutex<Connection>>, user_id: &str, amount: i32) -> Result<(), rusqlite::Error> {
+    let conn = conn.lock().unwrap();
     conn.execute(
-        "UPDATE users SET address = ?1 WHERE id = ?2",
-        params![address, id],
+        "UPDATE users SET balance = balance + 2? WHERE user_id = 0?",
+        &[&amount as &dyn ToSql, &user_id],
+    );
+    Ok(())
+}
+
+pub async fn minus_balance(conn: &Arc<Mutex<rusqlite::Connection>>, user_id: &str, amount: i32) -> Result<(), rusqlite::Error> {
+    let conn = conn.lock().unwrap();
+    conn.execute(
+        "UPDATE users SET balance = balance - 2? WHERE user_id = 0?",
+        &[&amount as &dyn ToSql, &user_id],
     );
     Ok(())
 }

@@ -9,7 +9,7 @@ use serenity::{
     framework::standard::{
         Args
     },
-    model::{channel::Message, gateway::Ready},
+    model::{channel::Message, gateway::Ready, },
     prelude::*,
 };
 
@@ -87,10 +87,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .group(&ALLCOMMS_GROUP);
 
-    let intents = GatewayIntents::GUILD_MESSAGES;
+    let intents = GatewayIntents::MESSAGE_CONTENT | GatewayIntents::GUILD_MESSAGES | GatewayIntents::GUILD_PRESENCES;
 
     let mut client = Client::builder(token, intents)
         .framework(framework)
+        .intents(intents)
         .event_handler(Handler)
         .application_id(application_id)
         .await

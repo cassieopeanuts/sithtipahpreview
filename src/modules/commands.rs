@@ -3,27 +3,15 @@ use serenity::{
         Args, CommandResult,
         macros::{command, group},
     },
-    model::{channel::Message,}
+    model::{channel::Message, prelude::UserId,}
 };
 use serenity::prelude::Context;
-use super::database::{insert_row, get_user, update_balance, get_balance, update_address};
+use super::database::{insert_row, get_user, plus_balance, minus_balance, get_balance, update_address, create_db_conn };
 use lazy_static::lazy_static;
 use r2d2_sqlite::SqliteConnectionManager;
 use std::sync::{Arc, Mutex};
 use rusqlite;
-use tokio::runtime::Runtime;
-
-
-// Set up the connection manager and pool
-lazy_static! {
-    static ref POOL: Arc<Mutex<r2d2::Pool<SqliteConnectionManager>>> = {
-        let manager = SqliteConnectionManager::file("userstable.db");
-        let pool = r2d2::Pool::builder()
-            .build(manager)
-            .unwrap_or_else(|_| panic!("Error creating pool"));
-        Arc::new(Mutex::new(pool))
-    };
-}
+use regex::Regex;
 
 // bot commands
 #[group("allcomms")]
@@ -31,150 +19,178 @@ lazy_static! {
 pub struct Allcomms;
 
 #[command]
-pub async fn tip(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    // Clone the connection pool and HTTP client
-    let pool = POOL.clone();
-    let http = ctx.http.clone();
+pub async fn register(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+   
+    let conn = create_db_conn();
+    // Check if there's a single argument provided, the Ethereum address
+    if args.len() != 1 {
+        let _ = msg.reply(&ctx, "Incorrect number of arguments, please provide a single Ethereum address.");
+        return Ok(());
+    }
 
-    // Parse the user ID or username and amount from the command arguments
-    let name = args.single::<String>()?;
-    let amount = args.single::<i32>()?;
-
-    // Look up the user ID of the recipient
-    let recipient_id = match name.parse::<u64>() {
-        Ok(id) => match http.get_user(id).await {
-            Ok(user) => user.id,
-            Err(_) => {
-                msg.channel_id.say(&http, "User not found").await;
-                return Err("User not found".into());
-            }
-        },
+    // Check if the argument is a valid Ethereum address
+    let address = match args.single::<String>() {
+        Ok(address) => address,
         Err(_) => {
-            msg.channel_id.say(&http, "Invalid user ID or username").await;
-            return Err("Invalid user ID or username".into());
-        }
+            // send an error message indicating that the user must provide a valid address
+            return Ok(());
+        },
     };
-
-    // Lock the connection pool and get a connection
-    let conn = pool.lock().expect("Error acquiring mutex").get()?;
-
-    // call tip_data function to handle the database operations
-    tip_data(&conn, *msg.author.id.as_u64(), *recipient_id.as_u64(), amount);
-
-    // Send a message to the channel indicating that the tip was successful
-    let sender_name = msg.author.id.as_u64();
-    let recipient_name = recipient_id.as_u64();
-    msg.channel_id.say(&http, format!("{} tipped {} {}", sender_name, recipient_name, amount)).await;
     
+    let address_regex = Regex::new(r"^0x[a-fA-F0-9]{40}$").unwrap();
+    if !address_regex.is_match(&address) {
+        let _ = msg.reply(&ctx, "Invalid Ethereum address, please provide a 42-character hexadecimal string starting with '0x'.");
+        return Ok(());
+    }
+
+    // If the argument is a valid Ethereum address, proceed to insert it into the database
+    let user_id = msg.author.id.as_u64().to_string();
+    match insert_row(conn, &user_id, &address, 10).await {
+        Ok(_) => {
+            let _ = msg.reply(&ctx, "Successfully registered Ethereum address.");
+        }
+        Err(e) => {
+            let _ = msg.reply(&ctx, &format!("Failed to register Ethereum address: {}", e));
+        }
+    }
+
+    Ok(())
+}
+
+#[command]
+pub async fn balance(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+    let conn = create_db_conn();
+    let user_id = msg.author.id.as_u64().to_string();
+
+    match get_balance(&conn, &user_id).await {
+        Ok(balance) => {
+            let _ = msg.reply(&ctx, &format!("Your balance is {}", balance)).await;
+        }
+        Err(e) => {
+            let _ = msg.reply(&ctx, &format!("Failed to retrieve your balance: {}", e)).await;
+        }   
+    }
     Ok(())
 }
 
 #[command]
 pub async fn update(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    // Clone the connection pool and HTTP client
-    let pool = POOL.clone();
-    let http = ctx.http.clone();
+    let conn = create_db_conn();
+    // Check if there's a single argument provided, the Ethereum address
+    if args.len() != 1 {
+        let _ = msg.reply(&ctx, "Incorrect number of arguments, please provide a single Ethereum address.");
+        return Ok(());
+    }
 
-    // Parse the user ID or address from the command arguments
-    let address = args.single::<String>()?;
-
-    // Lock the connection pool and get a connection
-    let conn = pool.lock().expect("Error acquiring mutex").get()?;
-
-    // call update_data function to handle the database operations
-    update_data(&conn, *msg.author.id.as_u64(), &address);
-
-    // Send a message to the channel indicating that the update was successful
-    let user_name = msg.author.id.as_u64();
-    msg.channel_id.say(&http, format!("{} address updated to {}", user_name, address)).await;
+    // Check if the argument is a valid Ethereum address
+    let address = match args.single::<String>() {
+        Ok(address) => address,
+        Err(_) => {
+            // send an error message indicating that the user must provide a valid address
+            return Ok(());
+        },
+    };
     
-    Ok(())
-}
-
-#[command]
-pub async fn balance(ctx: &Context, msg: &Message) -> CommandResult {
-    // Clone the connection pool and HTTP client
-    let pool = POOL.clone();
-    let http = ctx.http.clone();
-
-    // Lock the connection pool and get a connection
-    let conn = pool.lock().expect("Error acquiring mutex").get()?;
-
-    // Use the connection here
-    let balance = {
-        let result = get_balance(&conn, *msg.author.id.as_u64());
-
-        let mut runtime = Runtime::new()?;
-        runtime.block_on(result)?
+    let address_regex = Regex::new(r"^0x[a-fA-F0-9]{40}$").unwrap();
+    if !address_regex.is_match(&address) {
+        let _ = msg.reply(&ctx, "Invalid Ethereum address, please provide a 42-character hexadecimal string starting with '0x'.");
+        return Ok(());
     };
 
-    msg.channel_id
-        .say(&http, format!("Your balance is: {}", balance))
-        .await?;
-
+    let user_id = msg.author.id.as_u64().to_string();
+    match update_address(&conn, &user_id, &address).await {
+        Ok(_) => {
+            let _ = msg.reply(&ctx, "Address updated successfully.").await;
+        }
+        Err(e) => {
+            let _ = msg.reply(&ctx, &format!("Failed to update address: {}", e)).await;
+        }
+    }
     Ok(())
 }
 
 #[command]
-pub async fn register(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    // Clone the connection pool and HTTP client
-    let pool = POOL.clone();
-    let http = ctx.http.clone();
+pub async fn tip(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+let mut conn = create_db_conn();
+// Check if there are two arguments provided, the recipient's user ID and the amount to tip
+if args.len() != 2 {
+let _ = msg.reply(&ctx, "Incorrect number of arguments, please provide a user ID and an amount to tip.").await;
+return Ok(());
+};
 
-    // Get the address from the command arguments
-    let address = args.single::<String>()?;
+let recipient_id = match args.single::<String>() {
+    Ok(recipient_id) => recipient_id,
+    Err(_) => {
+        let _ = msg.reply(&ctx, "Invalid user ID, please mention a valid user in the form of @user.").await;
+        return Ok(());
+    },
+};
 
-    // Lock the connection pool and get a connection
-    let conn = pool.lock().expect("Error acquiring mutex").get()?;
-    let mut runtime = Runtime::new()?;
-    runtime.block_on(register_data(&conn, *msg.author.id.as_u64(), &address))?;
+let amount = match args.single::<i32>() {
+    Ok(amount) => amount,
+    Err(_) => {
+        let _ = msg.reply(&ctx, "Invalid tip amount, please provide a positive integer.").await;
+        return Ok(());
+    },
+};
 
-    // Send a message to the channel indicating that the registration was successful
-    let user_name = msg.author.id.as_u64();
-    msg.channel_id.say(&http, format!("{} registered with address: {}", user_name, address)).await?;
+let sender_id = msg.author.id.as_u64().to_string();
 
-    Ok(())
-}
-
-// Database operations
-fn tip_data(conn: &rusqlite::Connection, sender_id: u64, recipient_id: u64, amount: i32) -> Result<(), String> {
-    // Ensure that the sender and recipient exist in the database
-    let sender_exists = get_user(conn, sender_id);
-    let recipient_exists = get_user(conn, recipient_id);
-    let sender_balance = get_balance(conn, sender_id);
-
-    // add if and else to function to work (check update_data fn for example)
-
-
-    // Update the balances of the sender and recipient in the database
-    update_balance(conn, sender_id, -amount);
-    update_balance(conn, recipient_id, amount);
-
-    Ok(())
-}
-
-async fn update_data(conn: &rusqlite::Connection, user_id: u64, address: &str) -> Result<(), rusqlite::Error> {
-    // Check if the user exists
-    let user_exists = get_user(conn, user_id).await.is_ok();
-    if !user_exists {
-        // Insert a new row if the user doesn't exist
-        insert_row(conn, "", &address, 0).await?;
-    } else {
-        // Update the row if the user exists
-        update_address(conn, user_id, &address).await?;
+// Check if the sender has enough balance
+let sender_balance = match get_balance(&conn, &sender_id).await {
+    Ok(balance) => balance,
+    Err(e) => {
+        let _ = msg.reply(&ctx, &format!("Failed to retrieve your balance: {}", e)).await;
+        return Ok(());
     }
-    Ok(())
+};
+
+if sender_balance < amount {
+    let _ = msg.reply(&ctx, "You don't have enough balance to make this tip.").await;
+    return Ok(());
 }
 
-pub async fn register_data(conn: &rusqlite::Connection, user_id: u64, address: &str) -> Result<(), rusqlite::Error> {
-    // Check if the user exists
-    let user_exists = get_user(conn, user_id).await.is_ok();
-    if !user_exists {
-        // Insert a new row if the user doesn't exist
-        insert_row(conn, "", &address, 10);
-    } else {
-        // Update the row if the user exists
-        update_address(conn, user_id, &address);
+// Check if the recipient exists in the database
+let recipient_exists = match get_user(&conn, &recipient_id.as_str()).await {
+    Ok(exists) => exists,
+    Err(e) => {
+        let _ = msg.reply(&ctx, &format!("Failed to check if the recipient exists: {}", e)).await;
+        return Ok(());
     }
+};
+
+// If the recipient doesn't exist, insert them into the database
+if !recipient_exists {
+    match insert_row(conn, &recipient_id.as_str(), "", 10).await {
+        Ok(_) => (),
+        Err(e) => {
+            let _ = msg.reply(&ctx, &format!("Failed to insert the recipient into the database: {}", e)).await;
+            return Ok(());
+        }
+    }
+}
+
+    // Clone the connection after it has been moved
+    let conn = create_db_conn();
+// Perform the tip
+match minus_balance(&conn, &sender_id, amount).await {
+    Ok(_) => (),
+    Err(e) => {
+        let _ = msg.reply(&ctx, &format!("Failed to subtract balance from the sender: {}", e)).await;
+        return Ok(());
+    }
+};
+
+// Add the tip to the recipient's balance
+match plus_balance(&conn, &recipient_id, amount).await {
+    Ok(_) => {
+    let _ = msg.reply(&ctx, &format!("{} tokens tipped successfully to {}", amount, recipient_id)).await;
+    }
+    Err(e) => {
+    let _ = msg.reply(&ctx, &format!("Failed to add balance to the recipient: {}", e)).await;
+    return Ok(());
+    }
+    };
+    
     Ok(())
 }
