@@ -3,34 +3,28 @@ use serenity::{
         Args, CommandResult,
         macros::{command, group},
     },
-    model::{channel::Message, prelude::utils::single_recipient}
+    model::{channel::Message}
 };
+
 use serenity::prelude::Context;
-use super::database::{insert_row, get_user, plus_balance, minus_balance, get_balance, update_address, create_db_conn };
+use super::database::{insert_row, get_user, plus_balance, minus_balance, get_balance, update_address, create_db_conn, add_balance };
 use regex::Regex;
 
 // bot commands
 #[group("allcomms")]
-#[commands(tip, update, balance, register)]
+#[commands(tip, update, balance, register, giveme5)]
 pub struct Allcomms;
 
 #[command]
 pub async fn register(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-   
     let conn = create_db_conn();
-    // Check if there's a single argument provided, the Ethereum address
-    if args.len() != 2 {
-        let _ = msg.reply(&ctx, "Incorrect number of arguments, please provide a single Ethereum address.");
-        return Ok(());
-    }
-
-    // Check if the argument is a valid Ethereum address
+    // Retrieve the address from the command arguments
     let address = match args.single::<String>() {
         Ok(address) => address,
         Err(_) => {
-            // send an error message indicating that the user must provide a valid address
+            let _ = msg.reply(&ctx, "Please provide a valid Ethereum address.").await;
             return Ok(());
-        },
+        }
     };
     
     let address_regex = Regex::new(r"^0x[a-fA-F0-9]{40}$").unwrap();
@@ -39,15 +33,15 @@ pub async fn register(ctx: &Context, msg: &Message, mut args: Args) -> CommandRe
         return Ok(());
     }
 
-    // If the argument is a valid Ethereum address, proceed to insert it into the database
+    // Retrieve the user ID from the message sender
     let user_id = msg.author.id.as_u64().to_string();
-    match insert_row(conn, &user_id, &address, 10).await {
-        Ok(_) => {
-            let _ = msg.reply(&ctx, "Successfully registered Ethereum address.");
-        }
-        Err(e) => {
-            let _ = msg.reply(&ctx, &format!("Failed to register Ethereum address: {}", e));
-        }
+
+    // Insert the user ID and address into the database
+    if let Err(e) = insert_row(conn.clone(), &user_id.to_string(), &address, 0).await {
+        let _ = msg.reply(&ctx, "Failed to register address.").await;
+        println!("Error inserting row into database: {:?}", e);
+    } else {
+        let _ = msg.reply(&ctx, "Address registered successfully.").await;
     }
 
     Ok(())
@@ -58,33 +52,31 @@ pub async fn balance(ctx: &Context, msg: &Message, mut _args: Args) -> CommandRe
     let conn = create_db_conn();
     let user_id = msg.author.id.as_u64().to_string();
 
-    match get_balance(&conn, &user_id).await {
-        Ok(balance) => {
-            let _ = msg.reply(&ctx, &format!("Your balance is {}", balance)).await;
-        }
+    // Retrieve the balance for the user from the database
+    let balance = match get_balance(&conn, &user_id).await {
+        Ok(balance) => balance,
         Err(e) => {
-            let _ = msg.reply(&ctx, &format!("Failed to retrieve your balance: {}", e)).await;
-        }   
-    }
+            let _ = msg.reply(&ctx, "Failed to retrieve balance.").await;
+            println!("Error retrieving balance from database: {:?}", e);
+            return Ok(());
+        }
+    };
+
+    let _ = msg.reply(&ctx, format!("Your balance is {}.", balance)).await;
     Ok(())
 }
 
 #[command]
 pub async fn update(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     let conn = create_db_conn();
-    // Check if there's a single argument provided, the Ethereum address
-    if args.len() != 1 {
-        let _ = msg.reply(&ctx, "Incorrect number of arguments, please provide a single Ethereum address.");
-        return Ok(());
-    }
 
     // Check if the argument is a valid Ethereum address
     let address = match args.single::<String>() {
         Ok(address) => address,
         Err(_) => {
-            // send an error message indicating that the user must provide a valid address
+            let _ = msg.reply(&ctx, "Please provide a valid Ethereum address.").await;
             return Ok(());
-        },
+        }
     };
     
     let address_regex = Regex::new(r"^0x[a-fA-F0-9]{40}$").unwrap();
@@ -92,16 +84,17 @@ pub async fn update(ctx: &Context, msg: &Message, mut args: Args) -> CommandResu
         let _ = msg.reply(&ctx, "Invalid Ethereum address, please provide a 42-character hexadecimal string starting with '0x'.");
         return Ok(());
     };
-
+    //retrieve the UserId
     let user_id = msg.author.id.as_u64().to_string();
-    match update_address(&conn, &user_id, &address).await {
-        Ok(_) => {
-            let _ = msg.reply(&ctx, "Address updated successfully.").await;
-        }
-        Err(e) => {
-            let _ = msg.reply(&ctx, &format!("Failed to update address: {}", e)).await;
-        }
+    
+    //Update users address in the database
+    if let Err(e) = update_address(&conn, &address, &user_id).await {
+        let _ = msg.reply(&ctx, "Failed to update address.").await;
+        println!("Error updating row in database: {:?}", e);
+    } else {
+        let _ = msg.reply(&ctx, "Address updated successfully.").await;
     }
+
     Ok(())
 }
 
@@ -114,13 +107,23 @@ let _ = msg.reply(&ctx, "Incorrect number of arguments, please provide a user ID
 return Ok(());
 };
 
+let sender_id = msg.author.id.as_u64().to_string();
+
+// Retrieve the recipient's user ID from the first argument
 let recipient_id = match args.single::<String>() {
     Ok(recipient_id) => recipient_id,
     Err(_) => {
-        let _ = msg.reply(&ctx, "Invalid user ID, please mention a valid user in the form of @user.").await;
+        let _ = msg.reply(&ctx, "Please provide a valid user ID to tip.").await;
         return Ok(());
-    },
+    }
 };
+
+// Check if the sender and recipient aren't the same
+if recipient_id == sender_id {
+    let _ = msg.reply(&ctx, "You cannot tip yourself").await;
+    return Ok(());
+}
+
 
 let amount = match args.single::<i32>() {
     Ok(amount) => amount,
@@ -130,65 +133,67 @@ let amount = match args.single::<i32>() {
     },
 };
 
-let recipient_id = msg.mentions.as_u64().to_string();
-
-let sender_id = msg.author.id.as_u64().to_string();
-
-// Check if the sender has enough balance
+// Check if the message author has enough funds to tip
 let sender_balance = match get_balance(&conn, &sender_id).await {
     Ok(balance) => balance,
     Err(e) => {
-        let _ = msg.reply(&ctx, &format!("Failed to retrieve your balance: {}", e)).await;
+        let _ = msg.reply(&ctx, "Failed to retrieve sender's balance.").await;
+        println!("Error retrieving sender's balance: {:?}", e);
         return Ok(());
     }
 };
-
 if sender_balance < amount {
-    let _ = msg.reply(&ctx, "You don't have enough balance to make this tip.").await;
+    let _ = msg.reply(&ctx, "Insufficient balance to tip that amount.").await;
     return Ok(());
 }
 
-// Check if the recipient exists in the database
-let recipient_exists = match get_user(&conn, &recipient_id.as_str()).await {
-    Ok(exists) => exists,
-    Err(e) => {
-        let _ = msg.reply(&ctx, &format!("Failed to check if the recipient exists: {}", e)).await;
-        return Ok(());
-    }
-};
-
-// If the recipient doesn't exist, insert them into the database
-if !recipient_exists {
-    match insert_row(conn, &recipient_id.as_str(), "", 10).await {
-        Ok(_) => (),
-        Err(e) => {
-            let _ = msg.reply(&ctx, &format!("Failed to insert the recipient into the database: {}", e)).await;
+    // Check if the recipient's user ID exists in the database
+    let recipient_exists = get_user(&conn, &recipient_id.to_string()).await.is_ok();
+    if !recipient_exists {
+        // Insert the recipient into the database with a None address
+        let conn = create_db_conn();
+        if let Err(e) = insert_row(conn.clone(), &recipient_id.to_string(), "adressnotprovided", 0).await {
+            let _ = msg.reply(&ctx, "Failed to register recipient.").await;
+            println!("Error inserting row into database: {:?}", e);
             return Ok(());
         }
     }
-}
 
-    // Clone the connection after it has been moved
-    let conn = create_db_conn();
-// Perform the tip
-match minus_balance(&conn, &sender_id, amount).await {
-    Ok(_) => (),
-    Err(e) => {
-        let _ = msg.reply(&ctx, &format!("Failed to subtract balance from the sender: {}", e)).await;
+    // Subtract the tip amount from the sender's balance
+    if let Err(e) = minus_balance(&conn, &sender_id.to_string(), amount).await {
+        let _ = msg.reply(&ctx, "Failed to tip recipient.").await;
+        println!("Error subtracting balance from sender: {:?}", e);
         return Ok(());
     }
-};
 
-// Add the tip to the recipient's balance
-match plus_balance(&conn, &recipient_id, amount).await {
-    Ok(_) => {
-    let _ = msg.reply(&ctx, &format!("{} tokens tipped successfully to {}", amount, recipient_id)).await;
+    // Add the tip amount to the recipient's balance
+    if let Err(e) = plus_balance(&conn, &recipient_id.to_string(), amount).await {
+        let _ = msg.reply(&ctx, "Failed to tip recipient.").await;
+        println!("Error adding balance to recipient: {:?}", e);
+        // Roll back the sender's balance subtraction
+        let _ = plus_balance(&conn, &sender_id.to_string(), amount).await;
+        return Ok(());
     }
-    Err(e) => {
-    let _ = msg.reply(&ctx, &format!("Failed to add balance to the recipient: {}", e)).await;
-    return Ok(());
+
+    let _ = msg.reply(&ctx, format!("Tipped {} to <@{}>.", amount, recipient_id)).await;
+
+    Ok(())
+}
+
+#[command]
+async fn giveme5(ctx: &Context, msg: &Message) -> CommandResult {
+    let user_id = &msg.author.id.to_string();
+    let conn = create_db_conn();
+    let balance = get_balance(&conn, user_id).await?;
+
+    if balance < 1 {
+        add_balance(&conn, user_id).await?;
+        let reply = format!("Here's your 5 MoonSeeds! Your balance is now {}", balance + 5);
+        msg.channel_id.say(&ctx.http, &reply).await?;
+    } else {
+        let reply = format!("Sorry, you already have enough MoonSeeds! Your balance is {}", balance);
+        msg.channel_id.say(&ctx.http, &reply).await?;
     }
-    };
-    
+
     Ok(())
 }
