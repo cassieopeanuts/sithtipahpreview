@@ -5,6 +5,7 @@ pub fn create_db_conn() -> Arc<Mutex<Connection>> {
     let conn = Connection::open_in_memory().unwrap();
     let conn = Arc::new(Mutex::new(conn));
     create_table(&conn.lock().unwrap()).unwrap();
+    println!("Database connection and table creation successful");
     conn
 }
 use std::ops::Not;
@@ -20,7 +21,7 @@ impl Not for User {
     type Output = bool;
 
     fn not(self) -> Self::Output {
-        self.user_id.is_empty() || self.address.is_empty()
+        self.user_id.is_empty() || self.address.is_empty() || self.balance == 0
     }
 }
 
@@ -75,6 +76,7 @@ pub async fn update_balance(conn: &Arc<Mutex<rusqlite::Connection>>, user_id: &s
     let conn = conn.lock().unwrap();
     conn.execute("UPDATE users SET balance = ?2 WHERE user_id = ?0", params![balance, user_id])?;
     Ok(())
+    // THIS FUNCTION WILL BE USED LATER FOR WEB3 CRATE TO UPDATE USER BALANCE AFTER DEPOSIT
 }
 
 pub async fn get_balance(conn: &Arc<Mutex<rusqlite::Connection>>, user_id: &str) -> Result<i32, rusqlite::Error> {
@@ -93,7 +95,7 @@ pub async fn update_address(conn: &Arc<Mutex<rusqlite::Connection>>, address: &s
 pub async fn plus_balance(conn: &Arc<Mutex<Connection>>, user_id: &str, amount: i32) -> Result<(), rusqlite::Error> {
     let conn = conn.lock().unwrap();
     conn.execute(
-        "UPDATE users SET balance = balance + 2? WHERE user_id = 0?",
+        "UPDATE users SET balance = balance + ?2 WHERE user_id = ?0",
         &[&amount as &dyn ToSql, &user_id],
     );
     Ok(())
@@ -102,7 +104,7 @@ pub async fn plus_balance(conn: &Arc<Mutex<Connection>>, user_id: &str, amount: 
 pub async fn minus_balance(conn: &Arc<Mutex<rusqlite::Connection>>, user_id: &str, amount: i32) -> Result<(), rusqlite::Error> {
     let conn = conn.lock().unwrap();
     conn.execute(
-        "UPDATE users SET balance = balance - 2? WHERE user_id = 0?",
+        "UPDATE users SET balance = balance - ?2 WHERE user_id = ?0",
         &[&amount as &dyn ToSql, &user_id],
     );
     Ok(())

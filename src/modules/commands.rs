@@ -3,14 +3,10 @@ use serenity::{
         Args, CommandResult,
         macros::{command, group},
     },
-    model::{channel::Message, prelude::UserId,}
+    model::{channel::Message, prelude::utils::single_recipient}
 };
 use serenity::prelude::Context;
 use super::database::{insert_row, get_user, plus_balance, minus_balance, get_balance, update_address, create_db_conn };
-use lazy_static::lazy_static;
-use r2d2_sqlite::SqliteConnectionManager;
-use std::sync::{Arc, Mutex};
-use rusqlite;
 use regex::Regex;
 
 // bot commands
@@ -23,7 +19,7 @@ pub async fn register(ctx: &Context, msg: &Message, mut args: Args) -> CommandRe
    
     let conn = create_db_conn();
     // Check if there's a single argument provided, the Ethereum address
-    if args.len() != 1 {
+    if args.len() != 2 {
         let _ = msg.reply(&ctx, "Incorrect number of arguments, please provide a single Ethereum address.");
         return Ok(());
     }
@@ -58,7 +54,7 @@ pub async fn register(ctx: &Context, msg: &Message, mut args: Args) -> CommandRe
 }
 
 #[command]
-pub async fn balance(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+pub async fn balance(ctx: &Context, msg: &Message, mut _args: Args) -> CommandResult {
     let conn = create_db_conn();
     let user_id = msg.author.id.as_u64().to_string();
 
@@ -111,7 +107,7 @@ pub async fn update(ctx: &Context, msg: &Message, mut args: Args) -> CommandResu
 
 #[command]
 pub async fn tip(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-let mut conn = create_db_conn();
+let conn = create_db_conn();
 // Check if there are two arguments provided, the recipient's user ID and the amount to tip
 if args.len() != 2 {
 let _ = msg.reply(&ctx, "Incorrect number of arguments, please provide a user ID and an amount to tip.").await;
@@ -133,6 +129,8 @@ let amount = match args.single::<i32>() {
         return Ok(());
     },
 };
+
+let recipient_id = msg.mentions.as_u64().to_string();
 
 let sender_id = msg.author.id.as_u64().to_string();
 

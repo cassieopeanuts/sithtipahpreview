@@ -22,9 +22,11 @@ impl EventHandler for Handler {
 
     async fn message(&self, ctx: Context, msg: Message) {
         if msg.content.starts_with("!") {
+                return;
+            }
+
             let mut args_vec: Vec<&str> = msg.content.split(" ").collect();
-            let command = args_vec.remove(0);
-            command.trim_start_matches("!");
+            let command = args_vec.remove(0).trim_start_matches("!");
 
             let args = Args::new(&args_vec.join(" "), &[",".into(), ";".into()]);
 
@@ -61,11 +63,11 @@ impl EventHandler for Handler {
                         }
                     });
                 },
-                _ => println!("Command not found"),
+                _ => {},
             }
         }
-    }
 }
+
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -87,7 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .group(&ALLCOMMS_GROUP);
 
-    let intents = GatewayIntents::MESSAGE_CONTENT | GatewayIntents::GUILD_MESSAGES | GatewayIntents::GUILD_PRESENCES;
+    let intents = GatewayIntents::MESSAGE_CONTENT | GatewayIntents::GUILD_MESSAGES | GatewayIntents::GUILD_PRESENCES | GatewayIntents::GUILD_MEMBERS;
 
     let mut client = Client::builder(token, intents)
         .framework(framework)
