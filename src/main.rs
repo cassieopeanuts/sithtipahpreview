@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .prefix("!")
             .allow_dm(false)
             .with_whitespace(true)
-            .delimiters(vec![",", ";"])
+            .delimiters(vec![",", ";", " "])
             .case_insensitivity(true)
         )
         .group(&ALLCOMMS_GROUP);
